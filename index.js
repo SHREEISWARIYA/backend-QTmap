@@ -2,6 +2,8 @@ const express = require('express');
 const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
 const jwt = require('jsonwebtoken');
+const moment = require('moment-timezone');  // You'll need to install this package
+
 
 const app = express();
 const SECRET_KEY = 'your-secret-key'; // Use a secure key in production
@@ -152,11 +154,13 @@ app.get('/protected', verifyToken, (req, res) => {
 ////////////////////settings collection///////////
 
 // Settings Schema (keep only one version)
+// Settings Schema - Update timezone type to Number
 const SettingsSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'users' },
     general: {
         pastDataHours: { type: Number, default: 24 },
-        dataRefresh: { type: Number, default: 5 }
+        dataRefresh: { type: Number, default: 5 },
+        timezone: { type: Number, default: 0.0 }  // Changed to Number for offset storage
     },
     pastTrail: {
         hours: { type: Number, default: 24 },
@@ -183,18 +187,19 @@ app.post('/saveSettings', verifyToken, async (req, res) => {
         }
 
         // Validate settings structure
-        if (!settings.General || !settings["Past Trail"]) {
+        if (!settings.general) {
             return res.status(400).json({
                 success: false,
-                message: 'Invalid settings structure. Both General and Past Trail sections are required.'
+                message: 'Invalid settings structure. General section is required.'
             });
         }
 
         // Validate required fields
-        if (!settings.General["Past Data hours"] || 
-            !settings.General["Data Refresh"] || 
-            !settings["Past Trail"]["Hours"] || 
-            !settings["Past Trail"]["plot_size"]) {
+        if (!settings.general.pastDataHours || 
+            !settings.general.dataRefresh || 
+            settings.general.timezone === undefined ||  // Changed validation for timezone
+            !settings.pastTrail.hours || 
+            !settings.pastTrail.plotSize) {
             return res.status(400).json({
                 success: false,
                 message: 'Missing required settings fields'
@@ -204,14 +209,23 @@ app.post('/saveSettings', verifyToken, async (req, res) => {
         // Format the settings data with safe parsing
         const formattedSettings = {
             general: {
-                pastDataHours: parseInt(settings.General["Past Data hours"]) || 24,
-                dataRefresh: parseInt(settings.General["Data Refresh"]) || 5
+                pastDataHours: parseInt(settings.general.pastDataHours) || 24,
+                dataRefresh: parseInt(settings.general.dataRefresh) || 5,
+                timezone: parseFloat(settings.general.timezone) || 0.0  // Parse as float for offset
             },
             pastTrail: {
-                hours: parseInt(settings["Past Trail"]["Hours"]) || 24,
-                plotSize: settings["Past Trail"]["plot_size"] || "Small"
+                hours: parseInt(settings.pastTrail.hours) || 24,
+                plotSize: settings.pastTrail.plotSize || "Small"
             }
         };
+
+        // Validate timezone offset range
+        if (formattedSettings.general.timezone < -12.0 || formattedSettings.general.timezone > 14.0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid timezone offset. Must be between -12.0 and +14.0'
+            });
+        }
 
         // Debug log
         console.log('Formatted settings:', JSON.stringify(formattedSettings, null, 2));
@@ -236,11 +250,11 @@ app.post('/saveSettings', verifyToken, async (req, res) => {
 
     } catch (err) {
         console.error('Save settings error:', err);
-        console.error('Request body:', req.body);  // Log the request body on error
+        console.error('Request body:', req.body);
         res.status(500).json({
             success: false,
             message: 'Internal server error',
-            error: err.message  // Include error message in response
+            error: err.message
         });
     }
 });
