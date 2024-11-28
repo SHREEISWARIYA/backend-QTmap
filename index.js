@@ -452,7 +452,7 @@ app.post('/signup', async (req, res) => {
             general: {
                 pastDataHours: 24,
                 dataRefresh: 5,
-                theme: 'dark'
+                theme: 'Dark'
             },
             pastTrail: {
                 hours: 24,
@@ -523,7 +523,7 @@ const SettingsSchema = new mongoose.Schema({
         pastDataHours: { type: Number, default: 24 },
         dataRefresh: { type: Number, default: 5 },
         timezone: { type: Number, default: 0.0 },  // Changed to Number for offset storage
-        theme: { type: String, default: 'dark', enum: ['dark', 'light'] }  // Add theme
+        theme: { type: String, default: 'Dark', enum: ['Dark', 'Light'] }  // Add theme
     },
     pastTrail: {
         hours: { type: Number, default: 24 },
@@ -560,6 +560,7 @@ app.post('/saveSettings', verifyToken, async (req, res) => {
         // Validate required fields
         if (!settings.general.pastDataHours || 
             !settings.general.dataRefresh || 
+            !settings.general.theme ||
             settings.general.timezone === undefined ||  // Changed validation for timezone
             !settings.pastTrail.hours || 
             !settings.pastTrail.plotSize) {
@@ -572,9 +573,9 @@ app.post('/saveSettings', verifyToken, async (req, res) => {
         // Format the settings data with safe parsing
         const formattedSettings = {
             general: {
-                pastDataHours: parseInt(settings.General["Past Data hours"]) || 24,
-                dataRefresh: parseInt(settings.General["Data Refresh"]) || 5,
-                theme: settings.General["Theme"] || 'dark' ,
+                pastDataHours: parseInt(settings.general.pastDataHours) || 24,
+                dataRefresh: parseInt(settings.general.dataRefresh) || 5,
+                theme: settings.general.theme || 'Dark' ,
                 timezone: parseFloat(settings.general.timezone) || 0.0 
             },
             pastTrail: {
@@ -628,7 +629,7 @@ async function addThemeToExistingSettings() {
     try {
         const result = await SettingsModel.updateMany(
             { 'general.theme': { $exists: false } },
-            { $set: { 'general.theme': 'dark' } }
+            { $set: { 'general.theme': 'Dark' } }
         );
         console.log('Migration complete:', result);
     } catch (err) {
@@ -685,6 +686,7 @@ app.get('/getSettings/:userId', verifyToken, async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Internal server error',
+            
             error: err.message
         });
     }
