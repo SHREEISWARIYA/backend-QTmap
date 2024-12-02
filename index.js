@@ -191,7 +191,7 @@ app.get('/protected', verifyToken, (req, res) => {
 ///////////////////////////////////////////////////
 ////////////////////settings collection///////////
 
-// Settings Schema - Update to include viewport
+// Settings Schema - Update to include preferredLocation section
 const SettingsSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'users' },
     general: {
@@ -204,15 +204,17 @@ const SettingsSchema = new mongoose.Schema({
         hours: { type: Number, default: 24 },
         plotSize: { type: String, default: 'Small' }
     },
-    // Added viewport settings
     viewport: {
         latitude: { type: Number, default: 0 },
         longitude: { type: Number, default: 0 },
         zoomLevel: { type: Number, default: 3 }
     },
+    preferredLocation: {
+        name: { type: String, default: '' },
+        WKT: { type: String, default: '' }
+    },
     updatedAt: { type: Date, default: Date.now }
 });
-
 const SettingsModel = mongoose.model('settings', SettingsSchema);
 
 // Save settings endpoint
@@ -257,7 +259,7 @@ app.post('/saveSettings', verifyToken, async (req, res) => {
                 pastDataHours: parseInt(settings.general.pastDataHours) || 24,
                 dataRefresh: parseInt(settings.general.dataRefresh) || 5,
                 theme: settings.general.theme || 'Dark' ,
-                timezone: parseFloat(settings.general.timezone) || 0.0 
+                timezone: parseFloat(settings.general.timezone) || 0.0 ,
             },
             pastTrail: {
                 hours: parseInt(settings.pastTrail.hours) || 24,
@@ -304,6 +306,52 @@ app.post('/saveSettings', verifyToken, async (req, res) => {
         });
     }
 }); 
+
+// Save preferred location endpoint
+app.post('/savePreferredLocation', verifyToken, async (req, res) => {
+    try {
+        const { userId, preferredLocation } = req.body;
+        console.log('Received viewport and theme update:', {
+            userId,
+            preferredLocation
+        });
+        if (!userId || !preferredLocation) {
+            return res.status(400).json({
+                success: false,
+                message: 'UserId and preferredLocation are required'
+            });
+        }
+
+        // Update settings
+        const updatedSettings = await SettingsModel.findOneAndUpdate(
+            { userId: new mongoose.Types.ObjectId(userId) },
+            { 
+                $set: {
+                    preferredLocation: {
+                        name: preferredLocation.name,
+                        WKT: preferredLocation.WKT
+                    },
+                    updatedAt: new Date()
+                }
+            },
+            { upsert: true, new: true }
+        );
+
+        res.json({
+            success: true,
+            message: 'Preferred location saved successfully',
+            settings: updatedSettings
+        });
+
+    } catch (err) {
+        console.error('Save preferred location error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error',
+            error: err.message
+        });
+    }
+});
 
 // Add the new endpoints
 app.post('/saveViewportAndTheme', verifyToken, async (req, res) => {
@@ -403,6 +451,11 @@ app.get('/getViewportAndTheme/:userId', verifyToken, async (req, res) => {
                     longitude: 0,
                     zoomLevel: 3
                 },
+                preferredLocation:
+                {
+                    name : "Not Set",
+                    WKT : ""
+                },
                 isDarkTheme: true
             });
         }
@@ -410,6 +463,7 @@ app.get('/getViewportAndTheme/:userId', verifyToken, async (req, res) => {
         res.json({
             success: true,
             viewport: settings.viewport,
+            preferredLocation: settings.preferredLocation,
             isDarkTheme: settings.general.theme === 'Dark'
         });
 
