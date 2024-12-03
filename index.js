@@ -211,7 +211,8 @@ const SettingsSchema = new mongoose.Schema({
     },
     preferredLocation: {
         name: { type: String, default: '' },
-        WKT: { type: String, default: '' }
+        WKT: { type: String, default: '' },
+        isPreferred : { type: Boolean, default: true }
     },
     updatedAt: { type: Date, default: Date.now }
 });
@@ -329,7 +330,8 @@ app.post('/savePreferredLocation', verifyToken, async (req, res) => {
                 $set: {
                     preferredLocation: {
                         name: preferredLocation.name,
-                        WKT: preferredLocation.WKT
+                        WKT: preferredLocation.WKT,
+                        isPreferred : preferredLocation.isPreferred
                     },
                     updatedAt: new Date()
                 }
@@ -454,7 +456,8 @@ app.get('/getViewportAndTheme/:userId', verifyToken, async (req, res) => {
                 preferredLocation:
                 {
                     name : "Not Set",
-                    WKT : ""
+                    WKT : "",
+                    isPreferred : false 
                 },
                 isDarkTheme: true
             });
