@@ -546,7 +546,7 @@ app.post('/admin/createUser', verifyToken, async (req, res) => {
 ///////////////////////////////////////////////////
 //////////////////// settings collection ///////////
 
-// Settings Schema - Update to include viewport
+// Settings Schema - Update to include preferredLocation section
 const SettingsSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'users' },
     general: {
@@ -559,11 +559,15 @@ const SettingsSchema = new mongoose.Schema({
         hours: { type: Number, default: 24 },
         plotSize: { type: String, default: 'Small' }
     },
-    // Added viewport settings
     viewport: {
         latitude: { type: Number, default: 0 },
         longitude: { type: Number, default: 0 },
         zoomLevel: { type: Number, default: 3 }
+    },
+    preferredLocation: {
+        name: { type: String, default: '' },
+        WKT: { type: String, default: '' },
+        isPreferred : { type: Boolean, default: true }
     },
     tracking: {
         watchlists: {
@@ -697,7 +701,7 @@ app.post('/saveSettings', verifyToken, async (req, res) => {
                 pastDataHours: parseInt(settings.general.pastDataHours) || 24,
                 dataRefresh: parseInt(settings.general.dataRefresh) || 5,
                 theme: settings.general.theme || 'Dark' ,
-                timezone: parseFloat(settings.general.timezone) || 0.0 
+                timezone: parseFloat(settings.general.timezone) || 0.0 ,
             },
             pastTrail: {
                 hours: parseInt(settings.pastTrail.hours) || 24,
@@ -772,6 +776,53 @@ app.post('/saveSettings', verifyToken, async (req, res) => {
         });
     }
 }); 
+
+// Save preferred location endpoint
+app.post('/savePreferredLocation', verifyToken, async (req, res) => {
+    try {
+        const { userId, preferredLocation } = req.body;
+        console.log('Received viewport and theme update:', {
+            userId,
+            preferredLocation
+        });
+        if (!userId || !preferredLocation) {
+            return res.status(400).json({
+                success: false,
+                message: 'UserId and preferredLocation are required'
+            });
+        }
+
+        // Update settings
+        const updatedSettings = await SettingsModel.findOneAndUpdate(
+            { userId: new mongoose.Types.ObjectId(userId) },
+            { 
+                $set: {
+                    preferredLocation: {
+                        name: preferredLocation.name,
+                        WKT: preferredLocation.WKT,
+                        isPreferred : preferredLocation.isPreferred
+                    },
+                    updatedAt: new Date()
+                }
+            },
+            { upsert: true, new: true }
+        );
+
+        res.json({
+            success: true,
+            message: 'Preferred location saved successfully',
+            settings: updatedSettings
+        });
+
+    } catch (err) {
+        console.error('Save preferred location error:', err);
+        res.status(500).json({
+            success: false,
+            message: 'Internal server error',
+            error: err.message
+        });
+    }
+});
 
 // Add the new endpoints
 app.post('/saveViewportAndTheme', verifyToken, async (req, res) => {
@@ -871,6 +922,12 @@ app.get('/getViewportAndTheme/:userId', verifyToken, async (req, res) => {
                     longitude: 0,
                     zoomLevel: 3
                 },
+                preferredLocation:
+                {
+                    name : "Not Set",
+                    WKT : "",
+                    isPreferred : false 
+                },
                 isDarkTheme: true
             });
         }
@@ -878,6 +935,7 @@ app.get('/getViewportAndTheme/:userId', verifyToken, async (req, res) => {
         res.json({
             success: true,
             viewport: settings.viewport,
+            preferredLocation: settings.preferredLocation,
             isDarkTheme: settings.general.theme === 'Dark'
         });
 
@@ -891,73 +949,8 @@ app.get('/getViewportAndTheme/:userId', verifyToken, async (req, res) => {
     }
 });
 
+    
 
-
-// Run the migration when the server starts
-addThemeToExistingSettings();        
-
-
-// Add MMSI endpoint
-// app.post('/addMMSI', verifyToken, async (req, res) => {
-//     try {
-//         const { userId, mmsiId } = req.body;
-
-//         if (!userId || !mmsiId) {
-//             return res.status(400).json({
-//                 success: false,
-//                 message: 'UserId and mmsiId are required'
-//             });
-//         }
-
-//         // Validate MMSI format (typically 9 digits)
-//         const mmsiRegex = /^\d{9}$/;
-//         if (!mmsiRegex.test(mmsiId)) {
-//             return res.status(400).json({
-//                 success: false,
-//                 message: 'Invalid MMSI format. Must be 9 digits.'
-//             });
-//         }
-
-//         // Find user settings and update mmsiList
-//         const settings = await SettingsModel.findOne({ 
-//             userId: new mongoose.Types.ObjectId(userId) 
-//         });
-
-//         if (!settings) {
-//             return res.status(404).json({
-//                 success: false,
-//                 message: 'Settings not found for this user'
-//             });
-//         }
-
-//         // Check if MMSI already exists
-//         if (settings.tracking.mmsiList.includes(mmsiId)) {
-//             return res.status(400).json({
-//                 success: false,
-//                 message: 'MMSI already exists in the list'
-//             });
-//         }
-
-//         // Add new MMSI to the list
-//         settings.tracking.mmsiList.push(mmsiId);
-//         settings.updatedAt = new Date();
-//         await settings.save();
-
-//         res.json({
-//             success: true,
-//             message: 'MMSI added successfully',
-//             mmsiList: settings.tracking.mmsiList
-//         });
-
-//     } catch (err) {
-//         console.error('Add MMSI error:', err);
-//         res.status(500).json({
-//             success: false,
-//             message: 'Internal server error',
-//             error: err.message
-//         });
-//     }
-// });   
 
 // Add UUID endpoint
 app.post('/addUUIDToWatchlist', verifyToken, async (req, res) => {
@@ -1637,19 +1630,77 @@ async function migrateToWatchlists() {
     } catch (err) {
         console.error('Watchlist migration error:', err);
     }
+}  
+
+// Add migration for viewport and preferredLocation
+async function addViewportAndLocationToExistingSettings() {
+    try {
+        // Update all documents that don't have viewport or preferredLocation
+        const result = await SettingsModel.updateMany(
+            {
+                $or: [
+                    { viewport: { $exists: false } },
+                    { preferredLocation: { $exists: false } }
+                ]
+            },
+            {
+                $set: {
+                    viewport: {
+                        latitude: 23.745451463033906,
+                        longitude: 58.11198214362875,
+                        zoomLevel: 6
+                    },
+                    preferredLocation: {
+                        name: "0",
+                        WKT: "0",
+                        isPreferred: false
+                    }
+                }
+            },
+            { multi: true }
+        );
+
+        console.log('Migration results:', {
+            matchedCount: result.matchedCount,
+            modifiedCount: result.modifiedCount,
+            upsertedCount: result.upsertedCount
+        });
+
+        // Verify the update
+        const remainingDocs = await SettingsModel.countDocuments({
+            $or: [
+                { viewport: { $exists: false } },
+                { preferredLocation: { $exists: false } }
+            ]
+        });
+
+        console.log(`Remaining documents without viewport/preferredLocation: ${remainingDocs}`);
+
+        if (result.modifiedCount > 0) {
+            console.log('Viewport and PreferredLocation migration completed successfully');
+        } else {
+            console.log('No documents needed migration');
+        }
+    } catch (err) {
+        console.error('Error in viewport and preferredLocation migration:', err);
+        throw err;
+    }
 }
 
 // Run both migrations when the server starts
 async function runAllMigrations() {
     try {
         // Run existing theme migration
-        await addThemeToExistingSettings();
+        //await addThemeToExistingSettings();
         
         // Run UI settings migration
         await addUIPositionsToExistingSettings(); 
 
         //watchList migration
         await migrateToWatchlists(); 
+
+        // Run viewport and preferredLocation migration
+        //await addViewportAndLocationToExistingSettings();
         
         console.log('All migrations completed');
     } catch (err) {
