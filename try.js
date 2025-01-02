@@ -546,24 +546,19 @@ app.post('/admin/createUser', verifyToken, async (req, res) => {
 ///////////////////////////////////////////////////
 //////////////////// settings collection ///////////
 
-// Settings Schema - Update to include viewport
+// Settings Schema (keep only one version)
+// Settings Schema - Update timezone type to Number
 const SettingsSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'users' },
     general: {
         pastDataHours: { type: Number, default: 24 },
         dataRefresh: { type: Number, default: 5 },
-        timezone: { type: Number, default: 0.0 },
-        theme: { type: String, default: 'Dark', enum: ['Dark', 'Light'] }
+        timezone: { type: Number, default: 0.0 },  // Changed to Number for offset storage
+        theme: { type: String, default: 'Dark', enum: ['Dark', 'Light'] }  // Add theme
     },
     pastTrail: {
         hours: { type: Number, default: 24 },
         plotSize: { type: String, default: 'Small' }
-    },
-    // Added viewport settings
-    viewport: {
-        latitude: { type: Number, default: 0 },
-        longitude: { type: Number, default: 0 },
-        zoomLevel: { type: Number, default: 3 }
     },
     tracking: {
         watchlists: {
@@ -773,125 +768,18 @@ app.post('/saveSettings', verifyToken, async (req, res) => {
     }
 }); 
 
-// Add the new endpoints
-app.post('/saveViewportAndTheme', verifyToken, async (req, res) => {
+// Add a migration script to add theme for existing users
+async function addThemeToExistingSettings() {
     try {
-        const { userId, viewport, isDarkTheme } = req.body;
-
-        console.log('Received viewport and theme update:', {
-            userId,
-            viewport,
-            isDarkTheme
-        });
-
-        if (!userId || !viewport) {
-            return res.status(400).json({
-                success: false,
-                message: 'UserId and viewport data are required'
-            });
-        }
-
-        // Validate viewport data
-        if (viewport.latitude === undefined || 
-            viewport.longitude === undefined || 
-            viewport.zoomLevel === undefined) {
-            return res.status(400).json({
-                success: false,
-                message: 'Invalid viewport data'
-            });
-        }
-
-        // Format the viewport data with safe parsing
-        const formattedViewport = {
-            latitude: parseFloat(viewport.latitude) || 0,
-            longitude: parseFloat(viewport.longitude) || 0,
-            zoomLevel: parseInt(viewport.zoomLevel) || 3
-        };
-
-        // Validate coordinate ranges
-        if (formattedViewport.latitude < -90 || formattedViewport.latitude > 90 ||
-            formattedViewport.longitude < -180 || formattedViewport.longitude > 180) {
-            return res.status(400).json({
-                success: false,
-                message: 'Invalid coordinates'
-            });
-        }
-
-        // Update settings
-        const updatedSettings = await SettingsModel.findOneAndUpdate(
-            { userId: new mongoose.Types.ObjectId(userId) },
-            { 
-                $set: {
-                    viewport: formattedViewport,
-                    'general.theme': isDarkTheme ? 'Dark' : 'Light',
-                    updatedAt: new Date()
-                }
-            },
-            { upsert: true, new: true }
+        const result = await SettingsModel.updateMany(
+            { 'general.theme': { $exists: false } },
+            { $set: { 'general.theme': 'Dark' } }
         );
-
-        res.json({
-            success: true,
-            message: 'Viewport and theme settings saved successfully',
-            settings: updatedSettings
-        });
-
+        console.log('Migration complete:', result);
     } catch (err) {
-        console.error('Save viewport and theme error:', err);
-        res.status(500).json({
-            success: false,
-            message: 'Internal server error',
-            error: err.message
-        });
+        console.error('Migration error:', err);
     }
-});
-
-// Endpoint to get viewport and theme
-app.get('/getViewportAndTheme/:userId', verifyToken, async (req, res) => {
-    try {
-        const userId = req.params.userId;
-
-        if (!userId) {
-            return res.status(400).json({
-                success: false,
-                message: 'UserId is required'
-            });
-        }
-
-        const settings = await SettingsModel.findOne({ 
-            userId: new mongoose.Types.ObjectId(userId) 
-        });
-
-        if (!settings) {
-            // Return default values if no settings found
-            return res.json({
-                success: true,
-                viewport: {
-                    latitude: 0,
-                    longitude: 0,
-                    zoomLevel: 3
-                },
-                isDarkTheme: true
-            });
-        }
-
-        res.json({
-            success: true,
-            viewport: settings.viewport,
-            isDarkTheme: settings.general.theme === 'Dark'
-        });
-
-    } catch (err) {
-        console.error('Get viewport and theme error:', err);
-        res.status(500).json({
-            success: false,
-            message: 'Internal server error',
-            error: err.message
-        });
-    }
-});
-
-
+}
 
 // Run the migration when the server starts
 addThemeToExistingSettings();        
